@@ -18,8 +18,13 @@ program test_virtual_casing_symmetry
                 enddo
             enddo
             Nzwithsym = min(Nz, (Nz+3)/2)
-            field = 0.0
-            field(1:Nt*Nzwithsym) = expected(1:Nt*Nzwithsym)
+            ! Poison every sample that bnorml does not evaluate.
+            field = huge(1.0)
+            if (Nz.eq.1) then
+                field(1:(Nt+1)/2+1) = expected(1:(Nt+1)/2+1)
+            else
+                field(1:Nt*Nzwithsym) = expected(1:Nt*Nzwithsym)
+            endif
             call mirror_normal_field(Nt, Nz, Nzwithsym, field)
             if (maxval(abs(field-expected)).gt.2.e-14) error stop 'periodic symmetry mismatch'
             deallocate(expected, field)

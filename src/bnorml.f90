@@ -344,11 +344,19 @@ end subroutine bnorml
 
 ! Complete an odd field under (theta,zeta) -> (-theta,-zeta).
 ! The theta=0 column maps to itself, without advancing the toroidal row.
+! For Nz=1, bnorml evaluates only theta indices 0..(Nt+1)/2 of the single row.
 subroutine mirror_normal_field(Nt, Nz, Nzwithsym, field)
   implicit none
   integer, intent(in) :: Nt, Nz, Nzwithsym
   real, intent(inout) :: field(Nt*Nz)
   integer :: jj, kk, source, target
+
+  if (Nz.eq.1) then
+    do jj = (Nt+1)/2 + 1, Nt-1
+      field(1+jj) = -field(1+Nt-jj)
+    enddo
+    return
+  endif
 
   do kk = 1, Nz-Nzwithsym
     do jj = 0, Nt-1
