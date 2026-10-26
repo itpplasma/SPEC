@@ -1,0 +1,66 @@
+name: regression-cases
+on:
+  push:
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    env:
+      OMP_NUM_THREADS: 1
+      OMPI_ALLOW_RUN_AS_ROOT: 1
+      OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
+      MPLBACKEND: Agg
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gfortran ninja-build cmake mpi-default-bin mpi-default-dev \
+          libhdf5-dev libfftw3-dev libopenblas-dev
+        python3 -m venv "$RUNNER_TEMP/venv"
+        "$RUNNER_TEMP/venv/bin/pip" install numpy f90nml scipy h5py matplotlib
+        "$RUNNER_TEMP/venv/bin/pip" install ./Utilities/pythontools
+    - name: Build (legacy Fortran formats need -std=legacy with recent gfortran)
+      run: |
+        cmake -S . -B build -GNinja -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_C_COMPILER=mpicc -DCMAKE_CXX_COMPILER=mpicxx -DCMAKE_Fortran_COMPILER=mpifort \
+          -DCMAKE_Fortran_FLAGS=-std=legacy -DBLA_VENDOR=OpenBLAS \
+          -DHDF5_NO_FIND_PACKAGE_CONFIG_FILE=TRUE -DHDF5_PREFER_PARALLEL=TRUE \
+          -DCMAKE_INSTALL_PREFIX="$PWD/install"
+        cmake --build build
+        cmake --install build
+    - name: Unit tests
+      run: ctest --test-dir build --output-on-failure
+    - name: Regression cases
+      run: |
+        xspec="$PWD/install/bin/xspec"
+        python="$RUNNER_TEMP/venv/bin/python"
+        status=0
+        run_case() {
+          dir=$1; tol=$2; input=$3
+          ( cd "ci/$dir" &&
+            mpiexec -n 2 "$xspec" "$input" > "$input.log" 2>&1 &&
+            "$python" -m py_spec.ci.test compare.h5 "$input.h5" $tol ) \
+            && echo "PASS $dir/$input" || { echo "FAIL $dir/$input"; tail -40 "ci/$dir/$input.log"; status=1; }
+        }
+        run_case G1V03L0Fi "" G1V03L0Fi.sp
+        run_case G1V03L3Fi "" G1V03L3Fi.sp
+        run_case G2V32L1Fi "" G2V32L1Fi.001.sp
+        run_case toroidal_freeboundary_vacuum "--tol 1e-11" G3V02L0Fr_LU.sp
+        run_case toroidal_freeboundary_vacuum "--tol 1e-11" G3V02L0Fr.sp
+        run_case G3V08L3Fi "--tol 1e-10" G3V08L3Fi.001.sp
+        run_case G3V08L3Fr "--tol 1e-10" G3V08L3Fr.001.sp
+        run_case G3V08L3FrGrid "--tol 1e-10" G3V08L3FrGrid.001.sp
+        exit $status
+    - name: Keep outputs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: regression-outputs
+        path: |
+          ci/**/*.log
+          ci/**/*.sp.h5
+        if-no-files-found: ignore
